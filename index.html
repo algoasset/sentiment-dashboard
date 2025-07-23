@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Token Sentiment Visualizer</title>
+    <title>Crypto Token Sentiment Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.min.js"></script>
     <style>
         body {
@@ -40,12 +40,18 @@
         .error {
             color: red;
             margin-top: 10px;
+            font-weight: bold;
+        }
+        .loading {
+            color: #555;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Crypto Token Sentiment Visualizer</h1>
+        <h1>Crypto Token Sentiment Dashboard</h1>
+        <div class="loading" id="loading-message">Loading tokens...</div>
         <select id="symbol-select">
             <option value="">Select a token</option>
         </select>
@@ -70,6 +76,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             const symbolSelect = document.getElementById('symbol-select');
             const errorMessage = document.getElementById('error-message');
+            const loadingMessage = document.getElementById('loading-message');
             const API_BASE = 'https://api.allorigins.win/raw?url=https://fapi.binance.com/fapi/v1';
             const COINGECKO_API = 'https://api.coingecko.com/api/v3';
             const MAX_DATA_POINTS = 20;
@@ -100,50 +107,65 @@
 
             async function fetchTop100Tokens() {
                 try {
-                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`);
+                    console.log('Fetching top 100 tokens from CoinGecko...');
+                    loadingMessage.textContent = 'Loading token list...';
+                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
                     const tokens = await response.json();
+                    console.log('Tokens fetched:', tokens.length);
                     tokens.forEach(token => {
-                        const option = document.createElement('option');
-                        // Binance uses symbols like BTCUSDT, so convert CoinGecko id to symbol (e.g., bitcoin -> BTCUSDT)
                         const symbol = token.symbol.toUpperCase() + 'USDT';
+                        const option = document.createElement('option');
                         option.value = symbol;
                         option.textContent = `${token.name} (${token.symbol.toUpperCase()})`;
                         symbolSelect.appendChild(option);
                     });
-                    // Select the first token by default
+                    loadingMessage.style.display = 'none';
                     if (tokens.length > 0) {
-                        symbolSelect.value = tokens[0].symbol.toUpperCase() + 'USDT';
+                        symbolSelect.value = 'BTCUSDT'; // Default to Bitcoin
                         changeSymbol(symbolSelect.value);
+                    } else {
+                        throw new Error('No tokens returned from CoinGecko');
                     }
                 } catch (error) {
-                    console.error('Failed to fetch top 100 tokens:', error);
-                    errorMessage.textContent = 'Failed to load token list. Please try again later.';
+                    console.error('Failed to fetch tokens:', error);
+                    errorMessage.textContent = 'Failed to load token list. Please refresh the page.';
+                    loadingMessage.style.display = 'none';
                 }
             }
 
             function createOrUpdateChart(canvasId, config, labels, data) {
-                if (chartInstances[canvasId]) {
-                    chartInstances[canvasId].destroy();
-                }
-                const ctx = document.getElementById(canvasId).getContext('2d');
-                chartInstances[canvasId] = new Chart(ctx, {
-                    type: config.type,
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: config.label,
-                            data: data,
-                            borderColor: config.borderColor,
-                            backgroundColor: config.backgroundColor,
-                            fill: !!config.backgroundColor,
-                            tension: 0.4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        ...config.options
+                try {
+                    if (chartInstances[canvasId]) {
+                        chartInstances[canvasId].destroy();
                     }
-                });
+                    const ctx = document.getElementById(canvasId)?.getContext('2d');
+                    if (!ctx) throw new Error(`Canvas not found: ${canvasId}`);
+                    chartInstances[canvasId] = new Chart(ctx, {
+                        type: config.type,
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: config.label,
+                                data: data,
+                                borderColor: config.borderColor,
+                                backgroundColor: config.backgroundColor,
+                                fill: !!config.backgroundColor,
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            ...config.options
+                        }
+                    });
+                    console.log(`Chart updated: ${canvasId}`);
+                } catch (error) {
+                    console.error(`Chart creation failed for ${canvasId}:`, error);
+                    errorMessage.textContent = 'Error rendering charts. Please try another token.';
+                }
             }
 
             function addDataToCharts(symbol, newData) {
@@ -195,6 +217,7 @@
                 try {
                     console.log(`Fetching data for ${symbol}...`);
                     errorMessage.textContent = '';
+                    loadingMessage.textContent = `Fetching data for ${symbol}...`;
                     const encodedSymbol = encodeURIComponent(symbol);
                     const [premiumIndex, openInterestHist] = await Promise.all([
                         fetch(`${API_BASE}&url=${encodeURIComponent(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`)}`).then(res => res.json()),
@@ -210,6 +233,10 @@
                     const markPrice = parseFloat(premiumIndex.markPrice);
                     const openInterest = parseFloat(openInterestHist[0].sumOpenInterestValue);
 
+                    if (isNaN(fundingRate) || isNaN(markPrice) || isNaN(openInterest)) {
+                        throw new Error('Invalid data returned from Binance');
+                    }
+
                     const state = dataState[symbol];
                     const sentimentScore = calculateSentimentScore(fundingRate, openInterest, markPrice, state);
 
@@ -217,10 +244,11 @@
                     state.lastPrice = markPrice;
 
                     addDataToCharts(symbol, { sentimentScore, fundingRate, openInterest });
+                    loadingMessage.style.display = 'none';
                 } catch (error) {
                     console.error(`Failed to fetch data for ${symbol}:`, error);
                     errorMessage.textContent = `No futures data available for ${symbol} on Binance. Try another token.`;
-                    // Clear charts if error occurs
+                    loadingMessage.style.display = 'none';
                     ['sentimentScoreChart', 'fundingRateChart', 'openInterestChart'].forEach(canvasId => {
                         if (chartInstances[canvasId]) {
                             chartInstances[canvasId].destroy();
@@ -244,7 +272,10 @@
             }
 
             function changeSymbol(symbol) {
-                if (!symbol) return;
+                if (!symbol) {
+                    errorMessage.textContent = 'Please select a valid token.';
+                    return;
+                }
                 console.log(`Changing symbol to ${symbol}`);
                 initializeSymbol(symbol);
 
@@ -262,7 +293,7 @@
                 changeSymbol(event.target.value);
             });
 
-            // Fetch top 100 tokens and initialize
+            // Initialize
             fetchTop100Tokens();
         });
     </script>
