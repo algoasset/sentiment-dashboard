@@ -1,8 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const symbolSelect = document.getElementById('symbol-select');
-    // Using a CORS proxy to bypass browser security restrictions on the live site
-    const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
-    const API_BASE = `${CORS_PROXY}https://fapi.binance.com/fapi/v1`;
+    // Using a more reliable CORS proxy to bypass browser security restrictions on the live site
+    const API_BASE = `https://api.allorigins.win/raw?url=https://fapi.binance.com/fapi/v1`;
     const MAX_DATA_POINTS = 20;
 
     let chartInstances = {};
@@ -106,9 +105,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log(`Fetching new data for ${symbol}...`);
             
+            // Note: allorigins requires the URL to be encoded
+            const encodedSymbol = encodeURIComponent(symbol);
             const [premiumIndex, openInterestHist] = await Promise.all([
-                fetch(`${API_BASE}/premiumIndex?symbol=${symbol}`).then(res => res.json()),
-                fetch(`${API_BASE}/openInterestHist?symbol=${symbol}&period=5m&limit=1`).then(res => res.json())
+                fetch(`${API_BASE}/premiumIndex?symbol=${encodedSymbol}`).then(res => res.json()),
+                fetch(`${API_BASE}/openInterestHist?symbol=${encodedSymbol}&period=5m&limit=1`).then(res => res.json())
             ]);
 
             const fundingRate = parseFloat(premiumIndex.lastFundingRate);
