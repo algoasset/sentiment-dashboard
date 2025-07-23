@@ -119,10 +119,10 @@
                 }
             };
 
-            function populateFallbackTokens() {
-                console.log('Populating fallback tokens...');
+            function populateTokens(tokens) {
+                console.log('Populating tokens:', tokens.length);
                 symbolSelect.innerHTML = '<option value="">Select a token</option>';
-                fallbackSymbols.forEach(token => {
+                tokens.forEach(token => {
                     const option = document.createElement('option');
                     option.value = token.symbol;
                     option.dataset.geckoId = token.geckoId;
@@ -134,37 +134,26 @@
             }
 
             async function fetchTop100Tokens() {
+                console.log('Attempting to fetch tokens from CoinGecko...');
+                loadingMessage.textContent = 'Loading token list...';
                 try {
-                    console.log('Fetching tokens from CoinGecko...');
-                    loadingMessage.textContent = 'Loading token list...';
-                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`, {
+                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1&sparkline=false`, {
                         headers: { 'Accept': 'application/json' }
                     });
                     console.log('CoinGecko response status:', response.status);
                     if (!response.ok) throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
                     const tokens = await response.json();
                     console.log(`Fetched ${tokens.length} tokens`);
-
-                    symbolSelect.innerHTML = '<option value="">Select a token</option>';
-                    tokens.forEach(token => {
-                        const symbol = token.symbol.toUpperCase() + 'USDT';
-                        const option = document.createElement('option');
-                        option.value = symbol;
-                        option.dataset.geckoId = token.id;
-                        option.textContent = `${token.name} (${token.symbol.toUpperCase()})`;
-                        symbolSelect.appendChild(option);
-                    });
-
-                    if (tokens.length > 0) {
-                        symbolSelect.value = 'BTCUSDT';
-                        changeSymbol('BTCUSDT');
-                    } else {
-                        throw new Error('No tokens returned');
-                    }
+                    const formattedTokens = tokens.map(token => ({
+                        symbol: token.symbol.toUpperCase() + 'USDT',
+                        name: `${token.name} (${token.symbol.toUpperCase()})`,
+                        geckoId: token.id
+                    }));
+                    populateTokens(formattedTokens);
                 } catch (error) {
                     console.error('CoinGecko fetch failed:', error);
                     errorMessage.textContent = 'Failed to load tokens from CoinGecko. Using fallback list.';
-                    populateFallbackTokens();
+                    populateTokens(fallbackSymbols);
                 } finally {
                     loadingMessage.style.display = 'none';
                 }
@@ -275,7 +264,7 @@
                     if (!res.ok) throw new Error(`CoinGecko data fetch failed: ${res.status}`);
                     const data = await res.json();
                     console.log(`CoinGecko metrics data for ${symbolId}:`, data);
-                    const market = data.market_data;
+                    const market = data.market_data || {};
                     return {
                         fundingRate: (market.price_change_percentage_24h_in_currency?.usd || 0) / 1000,
                         openInterest: market.total_volume?.usd || 0,
@@ -295,7 +284,10 @@
 
                     const selectedOption = symbolSelect.querySelector(`option[value="${symbol}"]`);
                     const geckoId = selectedOption?.dataset.geckoId;
-                    if (!geckoId) throw new Error('Symbol not supported');
+                    if (!geckoId) {
+                        console.error('No geckoId for symbol:', symbol);
+                        throw new Error('Symbol not supported');
+                    }
 
                     const [sentimentScore, marketData] = await Promise.all([
                         fetchSentimentScore(),
@@ -313,7 +305,6 @@
                 } catch (error) {
                     console.error(`Data fetch failed for ${symbol}:`, error);
                     errorMessage.textContent = `Failed to fetch data for ${symbol}. Using mock data.`;
-                    const state = dataState[symbol];
                     addDataToCharts(symbol, mockData);
                 } finally {
                     loadingMessage.style.display = 'none';
@@ -354,6 +345,7 @@
                 console.error('Chart.js failed to load');
                 errorMessage.textContent = 'Chart.js failed to load. Please check your internet connection.';
                 loadingMessage.style.display = 'none';
+                populateTokens(fallbackSymbols); // Still show tokens
                 return;
             }
 
