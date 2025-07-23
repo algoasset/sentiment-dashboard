@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Sentiment Dashboard</title>
+    <title>Crypto Token Sentiment Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.min.js"></script>
     <style>
         body {
@@ -75,25 +75,17 @@
             const symbolSelect = document.getElementById('symbol-select');
             const errorMessage = document.getElementById('error-message');
             const loadingMessage = document.getElementById('loading-message');
-            const API_BASE = 'https://corsproxy.io/?https://fapi.binance.com/fapi/v1';
             const COINGECKO_API = 'https://api.coingecko.com/api/v3';
             const MAX_DATA_POINTS = 20;
 
-            // Fallback symbols (known to have Binance Futures)
+            // Fallback symbols if CoinGecko fails
             const fallbackSymbols = [
-                { symbol: 'BTCUSDT', name: 'Bitcoin (BTC)' },
-                { symbol: 'ETHUSDT', name: 'Ethereum (ETH)' },
-                { symbol: 'BNBUSDT', name: 'Binance Coin (BNB)' },
-                { symbol: 'ADAUSDT', name: 'Cardano (ADA)' },
-                { symbol: 'XRPUSDT', name: 'XRP (XRP)' }
+                { symbol: 'BTCUSDT', name: 'Bitcoin (BTC)', geckoId: 'bitcoin' },
+                { symbol: 'ETHUSDT', name: 'Ethereum (ETH)', geckoId: 'ethereum' },
+                { symbol: 'BNBUSDT', name: 'Binance Coin (BNB)', geckoId: 'binancecoin' },
+                { symbol: 'ADAUSDT', name: 'Cardano (ADA)', geckoId: 'cardano' },
+                { symbol: 'XRPUSDT', name: 'XRP (XRP)', geckoId: 'ripple' }
             ];
-
-            // Mock data for testing
-            const mockData = {
-                sentimentScore: 5,
-                fundingRate: 0.0005,
-                openInterest: 100000000
-            };
 
             let chartInstances = {};
             let dataState = {};
@@ -109,12 +101,12 @@
                 },
                 fundingRateChart: {
                     type: 'bar',
-                    label: 'Funding Rate (%)',
+                    label: 'Funding Rate (Proxy)',
                     backgroundColor: '#3498DB'
                 },
                 openInterestChart: {
                     type: 'line',
-                    label: 'Open Interest (USD)',
+                    label: 'Open Interest (Proxy - 24h Vol)',
                     borderColor: '#F39C12'
                 }
             };
@@ -123,36 +115,33 @@
                 try {
                     console.log('Fetching tokens from CoinGecko...');
                     loadingMessage.textContent = 'Loading token list...';
-                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`, {
-                        headers: { 'Accept': 'application/json' }
-                    });
+                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`);
                     if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
                     const tokens = await response.json();
-                    console.log(`Fetched ${tokens.length} tokens`);
-                    // Filter for tokens likely on Binance Futures (top 20 by market cap, common symbols)
-                    const filteredTokens = tokens
-                        .slice(0, 20)
-                        .filter(token => ['bitcoin', 'ethereum', 'binancecoin', 'cardano', 'ripple', 'solana', 'dogecoin', 'polkadot', 'matic-network', 'tron'].includes(token.id));
-                    filteredTokens.forEach(token => {
+                    
+                    symbolSelect.innerHTML = '<option value="">Select a token</option>'; // Clear previous
+                    
+                    tokens.forEach(token => {
                         const symbol = token.symbol.toUpperCase() + 'USDT';
                         const option = document.createElement('option');
                         option.value = symbol;
+                        option.dataset.geckoId = token.id;
                         option.textContent = `${token.name} (${token.symbol.toUpperCase()})`;
                         symbolSelect.appendChild(option);
                     });
-                    if (filteredTokens.length > 0) {
+
+                    loadingMessage.style.display = 'none';
+                    if (tokens.length > 0) {
                         symbolSelect.value = 'BTCUSDT';
                         changeSymbol(symbolSelect.value);
-                    } else {
-                        throw new Error('No valid tokens found');
                     }
                 } catch (error) {
                     console.error('CoinGecko fetch failed:', error);
                     errorMessage.textContent = 'Failed to load tokens from CoinGecko. Using fallback list.';
-                    // Use fallback symbols
                     fallbackSymbols.forEach(token => {
                         const option = document.createElement('option');
                         option.value = token.symbol;
+                        option.dataset.geckoId = token.geckoId;
                         option.textContent = token.name;
                         symbolSelect.appendChild(option);
                     });
@@ -164,35 +153,19 @@
             }
 
             function createOrUpdateChart(canvasId, config, labels, data) {
-                try {
-                    if (chartInstances[canvasId]) {
-                        chartInstances[canvasId].destroy();
-                    }
-                    const ctx = document.getElementById(canvasId)?.getContext('2d');
-                    if (!ctx) throw new Error(`Canvas not found: ${canvasId}`);
-                    chartInstances[canvasId] = new Chart(ctx, {
-                        type: config.type,
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: config.label,
-                                data: data,
-                                borderColor: config.borderColor,
-                                backgroundColor: config.backgroundColor,
-                                fill: !!config.backgroundColor,
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            ...config.options
-                        }
-                    });
-                    console.log(`Chart created: ${canvasId}`);
-                } catch (error) {
-                    console.error(`Chart creation failed for ${canvasId}:`, error);
-                    errorMessage.textContent = 'Error rendering charts. Please try another token.';
+                if (chartInstances[canvasId]) {
+                    chartInstances[canvasId].destroy();
                 }
+                const ctx = document.getElementById(canvasId)?.getContext('2d');
+                if (!ctx) return;
+                chartInstances[canvasId] = new Chart(ctx, {
+                    type: config.type,
+                    data: {
+                        labels: labels,
+                        datasets: [{ ...config, data: data }]
+                    },
+                    options: { responsive: true, ...config.options }
+                });
             }
 
             function addDataToCharts(symbol, newData) {
@@ -205,10 +178,7 @@
                 state.oiData.push(newData.openInterest);
 
                 if (state.labels.length > MAX_DATA_POINTS) {
-                    state.labels.shift();
-                    state.sentimentData.shift();
-                    state.fundingData.shift();
-                    state.oiData.shift();
+                    ['labels', 'sentimentData', 'fundingData', 'oiData'].forEach(key => state[key].shift());
                 }
 
                 if (symbolSelect.value === symbol) {
@@ -223,21 +193,24 @@
                 createOrUpdateChart('openInterestChart', chartConfigs.openInterestChart, state.labels, state.oiData);
             }
 
-            function calculateSentimentScore(fundingRate, oi, price, state) {
-                let score = 0;
-                const fundingRatePercent = fundingRate * 100;
-                if (fundingRatePercent > 0.05) score -= 5;
-                else if (fundingRatePercent < -0.05) score += 5;
-                else score += (fundingRatePercent / 0.05) * -5;
+            async function fetchSentimentScore() {
+                const res = await fetch('https://api.alternative.me/fng/');
+                const json = await res.json();
+                const value = parseInt(json.data[0].value);
+                return ((value - 50) / 50) * 10;
+            }
 
-                if (state.lastPrice > 0) {
-                    const oiTrend = oi > state.lastOpenInterest;
-                    const priceTrend = price > state.lastPrice;
-                    if (oiTrend && priceTrend) score += 3;
-                    else if (oiTrend && !priceTrend) score -= 3;
-                }
-
-                return Math.max(-10, Math.min(10, score));
+            async function fetchCoinGeckoMetrics(symbolId) {
+                const url = `${COINGECKO_API}/coins/${symbolId}?localization=false&tickers=false&market_data=true&sparkline=false`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`CoinGecko data fetch failed: ${res.status}`);
+                const data = await res.json();
+                const market = data.market_data;
+                return {
+                    fundingRate: (market.price_change_percentage_24h_in_currency.usd || 0) / 1000,
+                    openInterest: market.total_volume.usd || 0,
+                    price: market.current_price.usd
+                };
             }
 
             async function fetchData(symbol) {
@@ -245,104 +218,55 @@
                     console.log(`Fetching data for ${symbol}...`);
                     errorMessage.textContent = '';
                     loadingMessage.textContent = `Fetching data for ${symbol}...`;
-                    const encodedSymbol = encodeURIComponent(symbol);
-                    const [premiumIndex, openInterestHist] = await Promise.all([
-                        fetch(`${API_BASE}/premiumIndex?symbol=${encodedSymbol}`, {
-                            headers: { 'Accept': 'application/json' }
-                        }).then(res => {
-                            console.log(`PremiumIndex response status: ${res.status}`);
-                            return res.json();
-                        }),
-                        fetch(`${API_BASE}/openInterestHist?symbol=${encodedSymbol}&period=5m&limit=1`, {
-                            headers: { 'Accept': 'application/json' }
-                        }).then(res => {
-                            console.log(`OpenInterestHist response status: ${res.status}`);
-                            return res.json();
-                        })
+                    
+                    const selectedOption = symbolSelect.querySelector(`option[value="${symbol}"]`);
+                    const geckoId = selectedOption?.dataset.geckoId;
+
+                    if (!geckoId) throw new Error('Symbol not supported');
+
+                    const [sentimentScore, marketData] = await Promise.all([
+                        fetchSentimentScore(),
+                        fetchCoinGeckoMetrics(geckoId)
                     ]);
 
-                    console.log('PremiumIndex response:', premiumIndex);
-                    console.log('OpenInterestHist response:', openInterestHist);
-
-                    if (premiumIndex.code || openInterestHist.code) {
-                        throw new Error(`Symbol not found: ${symbol}`);
-                    }
-
-                    const fundingRate = parseFloat(premiumIndex.lastFundingRate);
-                    const markPrice = parseFloat(premiumIndex.markPrice);
-                    const openInterest = parseFloat(openInterestHist[0]?.sumOpenInterestValue);
-
-                    if (isNaN(fundingRate) || isNaN(markPrice) || isNaN(openInterest)) {
-                        throw new Error('Invalid data returned from Binance');
-                    }
-
+                    const { fundingRate, openInterest, price } = marketData;
                     const state = dataState[symbol];
-                    const sentimentScore = calculateSentimentScore(fundingRate, openInterest, markPrice, state);
 
                     state.lastOpenInterest = openInterest;
-                    state.lastPrice = markPrice;
+                    state.lastPrice = price;
 
                     addDataToCharts(symbol, { sentimentScore, fundingRate, openInterest });
-                    loadingMessage.style.display = 'none';
                 } catch (error) {
                     console.error(`Data fetch failed for ${symbol}:`, error);
-                    errorMessage.textContent = `No futures data for ${symbol} on Binance. Using mock data for testing.`;
+                    errorMessage.textContent = `Failed to fetch data for ${symbol}. Please try another token.`;
+                } finally {
                     loadingMessage.style.display = 'none';
-                    // Use mock data to display something
-                    const state = dataState[symbol];
-                    addDataToCharts(symbol, {
-                        sentimentScore: mockData.sentimentScore,
-                        fundingRate: mockData.fundingRate,
-                        openInterest: mockData.openInterest
-                    });
                 }
             }
 
             function initializeSymbol(symbol) {
                 if (!dataState[symbol]) {
                     dataState[symbol] = {
-                        labels: [],
-                        sentimentData: [],
-                        fundingData: [],
-                        oiData: [],
-                        lastOpenInterest: 0,
-                        lastPrice: 0
+                        labels: [], sentimentData: [], fundingData: [], oiData: [],
+                        lastOpenInterest: 0, lastPrice: 0
                     };
                 }
             }
 
             function changeSymbol(symbol) {
-                if (!symbol) {
-                    errorMessage.textContent = 'Please select a valid token.';
-                    return;
-                }
+                if (!symbol) return;
                 console.log(`Switching to symbol: ${symbol}`);
                 initializeSymbol(symbol);
                 updateAllCharts(symbol);
                 if (activeInterval) clearInterval(activeInterval);
                 fetchData(symbol);
-                activeInterval = setInterval(() => fetchData(symbol), 30000);
+                activeInterval = setInterval(() => fetchData(symbol), 60000); // Increased interval to 60s
             }
 
             symbolSelect.addEventListener('change', (event) => {
                 changeSymbol(event.target.value);
             });
 
-            // Verify Chart.js loaded
-            if (typeof Chart === 'undefined') {
-                console.error('Chart.js failed to load');
-                errorMessage.textContent = 'Chart.js failed to load. Please check your internet connection.';
-                loadingMessage.style.display = 'none';
-                return;
-            } else {
-                console.log('Chart.js loaded successfully');
-            }
-
-            // Cache busting for GitHub Pages
-            const cacheBuster = `?v=${Date.now()}`;
-            console.log('Cache buster:', cacheBuster);
-
-            // Start fetching tokens
             fetchTop100Tokens();
         });
     </script>
