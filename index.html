@@ -3,45 +3,268 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Sentiment Dashboard</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Crypto Token Sentiment Visualizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        select {
+            padding: 10px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            width: 100%;
+            max-width: 300px;
+        }
+        .chart-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .chart {
+            flex: 1 1 300px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .chart canvas {
+            max-height: 300px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+    </style>
 </head>
 <body>
-    <header>
-        <h1>Crypto Derivatives Sentiment Dashboard</h1>
-        <div class="controls">
-            <label for="symbol-select">Select Symbol:</label>
-            <select id="symbol-select">
-                <option value="BTCUSDT" selected>BTC/USDT</option>
-                <option value="ETHUSDT">ETH/USDT</option>
-                <option value="SOLUSDT">SOL/USDT</option>
-                <option value="BNBUSDT">BNB/USDT</option>
-                <option value="XRPUSDT">XRP/USDT</option>
-                <option value="DOGEUSDT">DOGE/USDT</option>
-                <option value="ADAUSDT">ADA/USDT</option>
-            </select>
-        </div>
-    </header>
-    <main>
-        <div class="container">
-            <div class="chart-container">
-                <h2>Sentiment Score</h2>
+    <div class="container">
+        <h1>Crypto Token Sentiment Visualizer</h1>
+        <select id="symbol-select">
+            <option value="">Select a token</option>
+        </select>
+        <div id="error-message" class="error"></div>
+        <div class="chart-container">
+            <div class="chart">
+                <h3>Sentiment Score</h3>
                 <canvas id="sentimentScoreChart"></canvas>
             </div>
-            <div class="chart-container">
-                <h2>Funding Rate</h2>
+            <div class="chart">
+                <h3>Funding Rate (%)</h3>
                 <canvas id="fundingRateChart"></canvas>
             </div>
-            <div class="chart-container">
-                <h2>Open Interest</h2>
+            <div class="chart">
+                <h3>Open Interest (USD)</h3>
                 <canvas id="openInterestChart"></canvas>
             </div>
         </div>
-    </main>
-    <footer>
-        <p>Data sourced from public exchange APIs. Not financial advice.</p>
-    </footer>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js"></script>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const symbolSelect = document.getElementById('symbol-select');
+            const errorMessage = document.getElementById('error-message');
+            const API_BASE = 'https://api.allorigins.win/raw?url=https://fapi.binance.com/fapi/v1';
+            const COINGECKO_API = 'https://api.coingecko.com/api/v3';
+            const MAX_DATA_POINTS = 20;
+
+            let chartInstances = {};
+            let dataState = {};
+            let activeInterval = null;
+
+            const chartConfigs = {
+                sentimentScoreChart: {
+                    type: 'line',
+                    label: 'Sentiment Score',
+                    borderColor: '#2ECC71',
+                    backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                    options: { scales: { y: { min: -10, max: 10 } } }
+                },
+                fundingRateChart: {
+                    type: 'bar',
+                    label: 'Funding Rate (%)',
+                    backgroundColor: '#3498DB'
+                },
+                openInterestChart: {
+                    type: 'line',
+                    label: 'Open Interest (USD)',
+                    borderColor: '#F39C12',
+                }
+            };
+
+            async function fetchTop100Tokens() {
+                try {
+                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`);
+                    const tokens = await response.json();
+                    tokens.forEach(token => {
+                        const option = document.createElement('option');
+                        // Binance uses symbols like BTCUSDT, so convert CoinGecko id to symbol (e.g., bitcoin -> BTCUSDT)
+                        const symbol = token.symbol.toUpperCase() + 'USDT';
+                        option.value = symbol;
+                        option.textContent = `${token.name} (${token.symbol.toUpperCase()})`;
+                        symbolSelect.appendChild(option);
+                    });
+                    // Select the first token by default
+                    if (tokens.length > 0) {
+                        symbolSelect.value = tokens[0].symbol.toUpperCase() + 'USDT';
+                        changeSymbol(symbolSelect.value);
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch top 100 tokens:', error);
+                    errorMessage.textContent = 'Failed to load token list. Please try again later.';
+                }
+            }
+
+            function createOrUpdateChart(canvasId, config, labels, data) {
+                if (chartInstances[canvasId]) {
+                    chartInstances[canvasId].destroy();
+                }
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                chartInstances[canvasId] = new Chart(ctx, {
+                    type: config.type,
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: config.label,
+                            data: data,
+                            borderColor: config.borderColor,
+                            backgroundColor: config.backgroundColor,
+                            fill: !!config.backgroundColor,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        ...config.options
+                    }
+                });
+            }
+
+            function addDataToCharts(symbol, newData) {
+                const now = new Date().toLocaleTimeString();
+                const state = dataState[symbol];
+
+                state.labels.push(now);
+                state.sentimentData.push(newData.sentimentScore);
+                state.fundingData.push(newData.fundingRate * 100);
+                state.oiData.push(newData.openInterest);
+
+                if (state.labels.length > MAX_DATA_POINTS) {
+                    state.labels.shift();
+                    state.sentimentData.shift();
+                    state.fundingData.shift();
+                    state.oiData.shift();
+                }
+
+                if (symbolSelect.value === symbol) {
+                    updateAllCharts(symbol);
+                }
+            }
+
+            function updateAllCharts(symbol) {
+                const state = dataState[symbol];
+                createOrUpdateChart('sentimentScoreChart', chartConfigs.sentimentScoreChart, state.labels, state.sentimentData);
+                createOrUpdateChart('fundingRateChart', chartConfigs.fundingRateChart, state.labels, state.fundingData);
+                createOrUpdateChart('openInterestChart', chartConfigs.openInterestChart, state.labels, state.oiData);
+            }
+
+            function calculateSentimentScore(fundingRate, oi, price, state) {
+                let score = 0;
+                const fundingRatePercent = fundingRate * 100;
+                if (fundingRatePercent > 0.05) score -= 5;
+                else if (fundingRatePercent < -0.05) score += 5;
+                else score += (fundingRatePercent / 0.05) * -5;
+
+                if (state.lastPrice > 0) {
+                    const oiTrend = oi > state.lastOpenInterest;
+                    const priceTrend = price > state.lastPrice;
+                    if (oiTrend && priceTrend) score += 3;
+                    else if (oiTrend && !priceTrend) score -= 3;
+                }
+
+                return Math.max(-10, Math.min(10, score));
+            }
+
+            async function fetchData(symbol) {
+                try {
+                    console.log(`Fetching data for ${symbol}...`);
+                    errorMessage.textContent = '';
+                    const encodedSymbol = encodeURIComponent(symbol);
+                    const [premiumIndex, openInterestHist] = await Promise.all([
+                        fetch(`${API_BASE}&url=${encodeURIComponent(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`)}`).then(res => res.json()),
+                        fetch(`${API_BASE}&url=${encodeURIComponent(`https://fapi.binance.com/fapi/v1/openInterestHist?symbol=${symbol}&period=5m&limit=1`)}`).then(res => res.json())
+                    ]);
+
+                    // Check for Binance API error response
+                    if (premiumIndex.code || openInterestHist.code) {
+                        throw new Error('Symbol not found on Binance Futures');
+                    }
+
+                    const fundingRate = parseFloat(premiumIndex.lastFundingRate);
+                    const markPrice = parseFloat(premiumIndex.markPrice);
+                    const openInterest = parseFloat(openInterestHist[0].sumOpenInterestValue);
+
+                    const state = dataState[symbol];
+                    const sentimentScore = calculateSentimentScore(fundingRate, openInterest, markPrice, state);
+
+                    state.lastOpenInterest = openInterest;
+                    state.lastPrice = markPrice;
+
+                    addDataToCharts(symbol, { sentimentScore, fundingRate, openInterest });
+                } catch (error) {
+                    console.error(`Failed to fetch data for ${symbol}:`, error);
+                    errorMessage.textContent = `No futures data available for ${symbol} on Binance. Try another token.`;
+                    // Clear charts if error occurs
+                    ['sentimentScoreChart', 'fundingRateChart', 'openInterestChart'].forEach(canvasId => {
+                        if (chartInstances[canvasId]) {
+                            chartInstances[canvasId].destroy();
+                            chartInstances[canvasId] = null;
+                        }
+                    });
+                }
+            }
+
+            function initializeSymbol(symbol) {
+                if (!dataState[symbol]) {
+                    dataState[symbol] = {
+                        labels: [],
+                        sentimentData: [],
+                        fundingData: [],
+                        oiData: [],
+                        lastOpenInterest: 0,
+                        lastPrice: 0
+                    };
+                }
+            }
+
+            function changeSymbol(symbol) {
+                if (!symbol) return;
+                console.log(`Changing symbol to ${symbol}`);
+                initializeSymbol(symbol);
+
+                updateAllCharts(symbol);
+
+                if (activeInterval) {
+                    clearInterval(activeInterval);
+                }
+
+                fetchData(symbol);
+                activeInterval = setInterval(() => fetchData(symbol), 30000);
+            }
+
+            symbolSelect.addEventListener('change', (event) => {
+                changeSymbol(event.target.value);
+            });
+
+            // Fetch top 100 tokens and initialize
+            fetchTop100Tokens();
+        });
+    </script>
 </body>
 </html>
