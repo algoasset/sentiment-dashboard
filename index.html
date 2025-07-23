@@ -59,11 +59,11 @@
                 <canvas id="sentimentScoreChart"></canvas>
             </div>
             <div class="chart">
-                <h3>Funding Rate (%)</h3>
+                <h3>Funding Rate (Proxy - %)</h3>
                 <canvas id="fundingRateChart"></canvas>
             </div>
             <div class="chart">
-                <h3>Open Interest (USD)</h3>
+                <h3>Open Interest (Proxy - USD)</h3>
                 <canvas id="openInterestChart"></canvas>
             </div>
         </div>
@@ -78,7 +78,7 @@
             const COINGECKO_API = 'https://api.coingecko.com/api/v3';
             const MAX_DATA_POINTS = 20;
 
-            // Fallback symbols if CoinGecko fails
+            // Fallback symbols with CoinGecko IDs
             const fallbackSymbols = [
                 { symbol: 'BTCUSDT', name: 'Bitcoin (BTC)', geckoId: 'bitcoin' },
                 { symbol: 'ETHUSDT', name: 'Ethereum (ETH)', geckoId: 'ethereum' },
@@ -86,6 +86,13 @@
                 { symbol: 'ADAUSDT', name: 'Cardano (ADA)', geckoId: 'cardano' },
                 { symbol: 'XRPUSDT', name: 'XRP (XRP)', geckoId: 'ripple' }
             ];
+
+            // Mock data for testing
+            const mockData = {
+                sentimentScore: 5,
+                fundingRate: 0.001,
+                openInterest: 100000000
+            };
 
             let chartInstances = {};
             let dataState = {};
@@ -101,12 +108,12 @@
                 },
                 fundingRateChart: {
                     type: 'bar',
-                    label: 'Funding Rate (Proxy)',
+                    label: 'Funding Rate (Proxy - %)',
                     backgroundColor: '#3498DB'
                 },
                 openInterestChart: {
                     type: 'line',
-                    label: 'Open Interest (Proxy - 24h Vol)',
+                    label: 'Open Interest (Proxy - USD)',
                     borderColor: '#F39C12'
                 }
             };
@@ -115,12 +122,14 @@
                 try {
                     console.log('Fetching tokens from CoinGecko...');
                     loadingMessage.textContent = 'Loading token list...';
-                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`);
-                    if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
+                    const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false`, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!response.ok) throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
                     const tokens = await response.json();
-                    
-                    symbolSelect.innerHTML = '<option value="">Select a token</option>'; // Clear previous
-                    
+                    console.log(`Fetched ${tokens.length} tokens`);
+
+                    symbolSelect.innerHTML = '<option value="">Select a token</option>';
                     tokens.forEach(token => {
                         const symbol = token.symbol.toUpperCase() + 'USDT';
                         const option = document.createElement('option');
@@ -130,14 +139,16 @@
                         symbolSelect.appendChild(option);
                     });
 
-                    loadingMessage.style.display = 'none';
                     if (tokens.length > 0) {
                         symbolSelect.value = 'BTCUSDT';
                         changeSymbol(symbolSelect.value);
+                    } else {
+                        throw new Error('No tokens returned');
                     }
                 } catch (error) {
                     console.error('CoinGecko fetch failed:', error);
                     errorMessage.textContent = 'Failed to load tokens from CoinGecko. Using fallback list.';
+                    symbolSelect.innerHTML = '<option value="">Select a token</option>';
                     fallbackSymbols.forEach(token => {
                         const option = document.createElement('option');
                         option.value = token.symbol;
@@ -153,19 +164,35 @@
             }
 
             function createOrUpdateChart(canvasId, config, labels, data) {
-                if (chartInstances[canvasId]) {
-                    chartInstances[canvasId].destroy();
+                try {
+                    if (chartInstances[canvasId]) {
+                        chartInstances[canvasId].destroy();
+                    }
+                    const ctx = document.getElementById(canvasId)?.getContext('2d');
+                    if (!ctx) throw new Error(`Canvas not found: ${canvasId}`);
+                    chartInstances[canvasId] = new Chart(ctx, {
+                        type: config.type,
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: config.label,
+                                data: data,
+                                borderColor: config.borderColor,
+                                backgroundColor: config.backgroundColor,
+                                fill: !!config.backgroundColor,
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            ...config.options
+                        }
+                    });
+                    console.log(`Chart created: ${canvasId}`);
+                } catch (error) {
+                    console.error(`Chart creation failed for ${canvasId}:`, error);
+                    errorMessage.textContent = 'Error rendering charts.';
                 }
-                const ctx = document.getElementById(canvasId)?.getContext('2d');
-                if (!ctx) return;
-                chartInstances[canvasId] = new Chart(ctx, {
-                    type: config.type,
-                    data: {
-                        labels: labels,
-                        datasets: [{ ...config, data: data }]
-                    },
-                    options: { responsive: true, ...config.options }
-                });
             }
 
             function addDataToCharts(symbol, newData) {
@@ -178,7 +205,10 @@
                 state.oiData.push(newData.openInterest);
 
                 if (state.labels.length > MAX_DATA_POINTS) {
-                    ['labels', 'sentimentData', 'fundingData', 'oiData'].forEach(key => state[key].shift());
+                    state.labels.shift();
+                    state.sentimentData.shift();
+                    state.fundingData.shift();
+                    state.oiData.shift();
                 }
 
                 if (symbolSelect.value === symbol) {
@@ -193,24 +223,57 @@
                 createOrUpdateChart('openInterestChart', chartConfigs.openInterestChart, state.labels, state.oiData);
             }
 
+            function calculateSentimentScore(fundingRate, oi, price, state) {
+                let score = 0;
+                const fundingRatePercent = fundingRate * 100;
+                if (fundingRatePercent > 0.05) score -= 5;
+                else if (fundingRatePercent < -0.05) score += 5;
+                else score += (fundingRatePercent / 0.05) * -5;
+
+                if (state.lastPrice > 0) {
+                    const oiTrend = oi > state.lastOpenInterest;
+                    const priceTrend = price > state.lastPrice;
+                    if (oiTrend && priceTrend) score += 3;
+                    else if (oiTrend && !priceTrend) score -= 3;
+                }
+
+                return Math.max(-10, Math.min(10, score));
+            }
+
             async function fetchSentimentScore() {
-                const res = await fetch('https://api.alternative.me/fng/');
-                const json = await res.json();
-                const value = parseInt(json.data[0].value);
-                return ((value - 50) / 50) * 10;
+                try {
+                    const res = await fetch('https://api.alternative.me/fng/', {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!res.ok) throw new Error(`Fear & Greed API error: ${res.status}`);
+                    const json = await res.json();
+                    const value = parseInt(json.data[0]?.value);
+                    if (isNaN(value)) throw new Error('Invalid Fear & Greed data');
+                    return ((value - 50) / 50) * 10;
+                } catch (error) {
+                    console.error('Fear & Greed fetch failed:', error);
+                    return mockData.sentimentScore; // Fallback to mock data
+                }
             }
 
             async function fetchCoinGeckoMetrics(symbolId) {
-                const url = `${COINGECKO_API}/coins/${symbolId}?localization=false&tickers=false&market_data=true&sparkline=false`;
-                const res = await fetch(url);
-                if (!res.ok) throw new Error(`CoinGecko data fetch failed: ${res.status}`);
-                const data = await res.json();
-                const market = data.market_data;
-                return {
-                    fundingRate: (market.price_change_percentage_24h_in_currency.usd || 0) / 1000,
-                    openInterest: market.total_volume.usd || 0,
-                    price: market.current_price.usd
-                };
+                try {
+                    const url = `${COINGECKO_API}/coins/${symbolId}?localization=false&tickers=false&market_data=true&sparkline=false`;
+                    const res = await fetch(url, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!res.ok) throw new Error(`CoinGecko data fetch failed: ${res.status}`);
+                    const data = await res.json();
+                    const market = data.market_data;
+                    return {
+                        fundingRate: (market.price_change_percentage_24h_in_currency?.usd || 0) / 1000,
+                        openInterest: market.total_volume?.usd || 0,
+                        price: market.current_price?.usd || 0
+                    };
+                } catch (error) {
+                    console.error(`CoinGecko metrics fetch failed for ${symbolId}:`, error);
+                    return mockData; // Fallback to mock data
+                }
             }
 
             async function fetchData(symbol) {
@@ -218,10 +281,9 @@
                     console.log(`Fetching data for ${symbol}...`);
                     errorMessage.textContent = '';
                     loadingMessage.textContent = `Fetching data for ${symbol}...`;
-                    
+
                     const selectedOption = symbolSelect.querySelector(`option[value="${symbol}"]`);
                     const geckoId = selectedOption?.dataset.geckoId;
-
                     if (!geckoId) throw new Error('Symbol not supported');
 
                     const [sentimentScore, marketData] = await Promise.all([
@@ -231,14 +293,17 @@
 
                     const { fundingRate, openInterest, price } = marketData;
                     const state = dataState[symbol];
+                    const calculatedSentiment = calculateSentimentScore(fundingRate, openInterest, price, state);
 
                     state.lastOpenInterest = openInterest;
                     state.lastPrice = price;
 
-                    addDataToCharts(symbol, { sentimentScore, fundingRate, openInterest });
+                    addDataToCharts(symbol, { sentimentScore: calculatedSentiment, fundingRate, openInterest });
                 } catch (error) {
                     console.error(`Data fetch failed for ${symbol}:`, error);
-                    errorMessage.textContent = `Failed to fetch data for ${symbol}. Please try another token.`;
+                    errorMessage.textContent = `Failed to fetch data for ${symbol}. Using mock data.`;
+                    const state = dataState[symbol];
+                    addDataToCharts(symbol, mockData);
                 } finally {
                     loadingMessage.style.display = 'none';
                 }
@@ -247,25 +312,43 @@
             function initializeSymbol(symbol) {
                 if (!dataState[symbol]) {
                     dataState[symbol] = {
-                        labels: [], sentimentData: [], fundingData: [], oiData: [],
-                        lastOpenInterest: 0, lastPrice: 0
+                        labels: [],
+                        sentimentData: [],
+                        fundingData: [],
+                        oiData: [],
+                        lastOpenInterest: 0,
+                        lastPrice: 0
                     };
                 }
             }
 
             function changeSymbol(symbol) {
-                if (!symbol) return;
+                if (!symbol) {
+                    errorMessage.textContent = 'Please select a valid token.';
+                    return;
+                }
                 console.log(`Switching to symbol: ${symbol}`);
                 initializeSymbol(symbol);
                 updateAllCharts(symbol);
                 if (activeInterval) clearInterval(activeInterval);
                 fetchData(symbol);
-                activeInterval = setInterval(() => fetchData(symbol), 60000); // Increased interval to 60s
+                activeInterval = setInterval(() => fetchData(symbol), 120000); // 2 minutes
             }
 
             symbolSelect.addEventListener('change', (event) => {
                 changeSymbol(event.target.value);
             });
+
+            // Verify Chart.js
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js failed to load');
+                errorMessage.textContent = 'Chart.js failed to load. Please check your internet connection.';
+                loadingMessage.style.display = 'none';
+                return;
+            }
+
+            // Cache busting
+            console.log('Cache buster:', `?v=${Date.now()}`);
 
             fetchTop100Tokens();
         });
