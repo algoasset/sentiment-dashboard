@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentiment Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Crypto Derivatives Sentiment Dashboard</h1>
+        <div class="controls">
+            <label for="symbol-select">Select Symbol:</label>
+            <select id="symbol-select">
+                <option value="BTCUSDT" selected>BTC/USDT</option>
+                <option value="ETHUSDT">ETH/USDT</option>
+                <option value="SOLUSDT">SOL/USDT</option>
+            </select>
+        </div>
+    </header>
+    <main>
+        <div class="container">
+            <div class="chart-container">
+                <h2>Sentiment Score</h2>
+                <canvas id="sentimentScoreChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2>Funding Rate</h2>
+                <canvas id="fundingRateChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2>Open Interest</h2>
+                <canvas id="openInterestChart"></canvas>
+            </div>
+        </div>
+    </main>
+    <footer>
+        <p>Data sourced from public exchange APIs. Not financial advice.</p>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

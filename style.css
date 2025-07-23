@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #121212;
+    color: #e0e0e0;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+}
+
+header {
+    background: #1f1f1f;
+    padding: 1rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid #333;
+}
+
+header h1 {
+    margin: 0;
+    font-weight: 700;
+    font-size: 2.5rem;
+}
+
+header p {
+    margin: 0;
+    font-weight: 300;
+    color: #b0b0b0;
+}
+
+.controls {
+    margin-top: 1rem;
+}
+
+#symbol-select {
+    padding: 0.5rem;
+    border-radius: 4px;
+    border: 1px solid #333;
+    background-color: #1f1f1f;
+    color: #e0e0e0;
+    font-size: 1rem;
+}
+
+main {
+    padding: 2rem;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.chart-container {
+    background: #1f1f1f;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chart-container h2 {
+    margin-top: 0;
+    text-align: center;
+    font-weight: 400;
+    border-bottom: 1px solid #333;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+footer {
+    text-align: center;
+    padding: 1rem;
+    margin-top: 2rem;
+    background: #1f1f1f;
+    border-top: 1px solid #333;
+    font-size: 0.9rem;
+    color: #b0b0b0;
+}
