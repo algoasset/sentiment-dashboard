@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     const symbolSelect = document.getElementById('symbol-select');
-    const API_BASE = 'https://fapi.binance.com/fapi/v1';
+    // Using a CORS proxy to bypass browser security restrictions on the live site
+    const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
+    const API_BASE = `${CORS_PROXY}https://fapi.binance.com/fapi/v1`;
     const MAX_DATA_POINTS = 20;
 
     let chartInstances = {};
